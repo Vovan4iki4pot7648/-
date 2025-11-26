@@ -16,17 +16,17 @@ with open('points.txt', 'r') as file:
         if line and not line.startswith('#'):
             x, y, error_x, error_y = map(float, line.split())
             points.append((x, y, error_x, error_y))
-x_coords = [p[0] for p in points]
-y_coords = [p[1] for p in points]
-error_x_coords = [p[2] for p in points]
-error_y_coords = [p[3] for p in points]
+x_coord = [p[0] for p in points]
+y_coord = [p[1] for p in points]
+error_x_coord = [p[2] for p in points]
+error_y_coord = [p[3] for p in points]
 
 plt.figure(figsize=(10, 6))
 
 # Добавляем погрешности с помощью errorbar
-plt.errorbar(x_coords, y_coords, 
-             xerr=error_x_coords, 
-             yerr=error_y_coords,
+plt.errorbar(x_coord, y_coord, 
+             xerr=error_x_coord, 
+             yerr=error_y_coord,
              fmt='none',
              ecolor='red',
              elinewidth=1,
@@ -39,30 +39,29 @@ print("Выберите тип зависимости для аппроксим�
 print("1. Линейная: y = kx + b")
 print("2. Квадратичная: y = ax² + bx + c")
 print("3. Гиперболическая: y = k/x + b")
-print("4. Синус: y = a*sin(bx + c) + d")
+print("4. Синусоидная: y = a*sin(bx + c) + d")
 print("5. Логарифмическая: y = k*ln(x) + b")
 
 choice = int(input("Введите номер выбранной зависимости (1-5): "))
 
 # Аппрокимирующая линия
-x_fit = np.linspace(min(x_coords), max(x_coords), 100)
+x_fit = np.linspace(min(x_coord), max(x_coord), 100)
 
 if choice == 1:
     # Линейная зависимость
-    k, b = np.polyfit(x_coords, y_coords, 1) # Аппроксимация
-    plt.plot(x_coords, k * np.array(x_coords) + b, 'bo-', linewidth=2, label=f'Аппроксимация: y = {k:.3f}x + {b:.3f}')
+    k, b = np.polyfit(x_coord, y_coord, 1) # Аппроксимация методом наименьших квадратов
+    plt.plot(x_coord, k * np.array(x_coord) + b, 'bo-', linewidth=2, label=f'Аппроксимация: y = {k:.3f}x + {b:.3f}')
     
     # Вычисляем площадь под графиком
-    area = (k/2 * max(x_coords)**2 + b * max(x_coords)) - (k/2 * min(x_coords)**2 + b * min(x_coords))
+    area = (k/2 * max(x_coord)**2 + b * max(x_coord)) - (k/2 * min(x_coord)**2 + b * min(x_coord))
     
     # Отображаем площадь на графике
-    plt.fill_between(x_fit, k * x_fit + b, alpha=0.3, color='blue', 
-                    label=f'Площадь = {area:.3f}')
+    plt.fill_between(x_fit, k * x_fit + b, alpha=0.3, color='blue', label=f'Площадь = {area:.3f}')
     plt.title('График зависимости y(x)')
 
 elif choice == 2:
     # Квадратичная зависимость
-    a, b, c = np.polyfit(x_coords, y_coords, 2)
+    a, b, c = np.polyfit(x_coord, y_coord, 2)
     plt.plot(x_fit, a * x_fit**2 + b * x_fit + c, 'bo-', linewidth=2, label=f'Аппроксимация: y = {a:.3f}x² + {b:.3f}x + {c:.3f}')
     plt.title('График зависимости y(x²)')
 
@@ -75,28 +74,28 @@ elif choice == 3:
         print(f"Обнаружены точки с x=0, которые невозможно использовать для гиперболической аппроксимации:")
         for x, y, error_x, error_y, index in invalidi:
             print(f"Точка {index+1}: ({x}, {y})")
-        print(f"Аппроксимация будет выполнена по {len(validi)} точкам из {len(x_coords)}")
+        print(f"Аппроксимация будет выполнена по {len(validi)} точкам из {len(x_coord)}")
         
         # Визуально выделяем проблемные точки
         plt.scatter([p[0] for p in invalidi], [p[1] for p in invalidi], color='red', s=100, marker='x', linewidth=3, zorder=5, label='Невозможные точки (x=0)')
     
     if len(validi) >= 2:
-        k, b = np.polyfit([1/xi for xi in [p[0] for p in validis]], [p[1] for p in validi], 1)
+        k, b = np.polyfit([1/xi for xi in [p[0] for p in validi]], [p[1] for p in validi], 1)
         plt.plot(x_fit, k / x_fit + b, 'bo-', linewidth=2, label=f'Аппроксимация: y = {k:.3f}/x + {b:.3f}')
     else:
         print("Недостаточно точек для гиперболической аппроксимации после фильтрации")
     plt.title('График зависимости y(1/x)')
 
 elif choice == 4:
-    # Синусоидальная зависимость
+    # Синусоидная зависимость
     def sin_func(x, a, b, c, d):
         return a * np.sin(b * x + c) + d
 
-    amplitude = (max(y_coords) - min(y_coords)) / 2 # Амплитуда
-    offset = np.mean(y_coords) # Смещение
-    frequency = 2 * np.pi / (max(x_coords) - min(x_coords)) if max(x_coords) > min(x_coords) else 1 # Частота
+    amplitude = (max(y_coord) - min(y_coord)) / 2 # Амплитуда
+    offset = np.mean(y_coord) # Смещение
+    frequency = 2 * np.pi / (max(x_coord) - min(x_coord)) if max(x_coord) > min(x_coord) else 1 # Частота
 
-    a, b, c, d = curve_fit(sin_func, x_coords, y_coords, p0 = [amplitude_guess, frequency_guess, 0, offset_guess], maxfev = 1000)[0]
+    a, b, c, d = curve_fit(sin_func, x_coord, y_coord, p0 = [amplitude, frequency, 0, offset], maxfev = 1000)[0]
 
     plt.plot(x_fit, sin_func(x_fit, a, b, c, d), 'bo-', linewidth=2, label=f'Аппроксимация: y = {a:.3f}sin({b:.3f}x + {c:.3f}) + {d:.3f}')
     plt.title('График зависимости y(sin(x))')
@@ -108,13 +107,12 @@ elif choice == 5:
     
     if invalidi:
         print(f"Обнаружены точки с x <= 0, которые невозможно использовать для логарифмической аппроксимации:")
-        for x, y, error_x, error_y, idx in invalidi:
-            print(f"  Точка {idx+1}: ({x}, {y})")
-        print(f"Аппроксимация будет выполнена по {len(validi)} точкам из {len(x_coords)}")
+        for x, y, error_x, error_y, index in invalidi:
+            print(f"  Точка {index+1}: ({x}, {y})")
+        print(f"Аппроксимация будет выполнена по {len(validi)} точкам из {len(x_coord)}")
         
         # Визуально выделяем проблемные точки
-        plt.scatter([p[0] for p in invalidi], [p[1] for p in invalidi], color='red', s=100, marker='x', linewidth=3, 
-                   zorder=5, label='Невозможные точки (x <= 0)')
+        plt.scatter([p[0] for p in invalidi], [p[1] for p in invalidi], color='red', s=100, marker='x', linewidth=3, zorder=5, label='Невозможные точки (x <= 0)')
     
     if len(validi) >= 2:
         k, b = np.polyfit(np.log([p[0] for p in validi]), [p[1] for p in validi], 1)
@@ -126,7 +124,7 @@ elif choice == 5:
     plt.title('График зависимости y(ln(x))')
 
 else:
-    print("Неверный выбор. Аппроксимация не выполнена.")
+    print("Выберите номер 1-5.")
 
 plt.grid(True, alpha=0.3)
 plt.xlabel('X')
