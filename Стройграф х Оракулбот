@@ -1,12 +1,9 @@
-from getpass import getpass
-import nest_asyncio, asyncio, logging
+import nest_asyncio, asyncio
 import sympy as sp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import matplotlib.pyplot as plt 
 import numpy as np
-from math import sin, log
-import io
 import tempfile
 import os
 
