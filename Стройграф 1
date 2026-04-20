@@ -1,133 +1,268 @@
-# pip install matplotlib numpy
-# Добавляем необходимые библиотеки
-from google.colab import files
-files.upload() # Добавляем файл points.txt с точками
-import matplotlib.pyplot as plt 
+import nest_asyncio, asyncio, logging
+import sympy as sp
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
+import matplotlib.pyplot as plt
 import numpy as np
-from math import sin, log
-from scipy.optimize import curve_fit # Библиотека для инженерных расчетов
+import tempfile
+import os
 
-points = [] 
+nest_asyncio.apply()
+logging.basicConfig(level=logging.INFO)
+r = {}
 
-# Импортируем точки из файла
-with open('points.txt', 'r') as file:
-    for line in file:
-        line = line.strip()
-        if line and not line.startswith('#'):
-            x, y, error_x, error_y = map(float, line.split())
-            points.append((x, y, error_x, error_y))
-x_coord = [p[0] for p in points]
-y_coord = [p[1] for p in points]
-error_x_coord = [p[2] for p in points]
-error_y_coord = [p[3] for p in points]
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("О боте", callback_data='about')],
+        [InlineKeyboardButton("Вычислить производную", callback_data='derivative')],
+        [InlineKeyboardButton("Аппроксимация графиков", callback_data='approximation')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Привет! Я запущен в Colab через polling 🐍\n", reply_markup=reply_markup)
 
-plt.figure(figsize=(10, 6))
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Команды: /start - перезапустить бота; /help - все команды; /about - о боте; /derivative - взятие производной; /approximation - построение графика по точкам")
 
-# Добавляем погрешности с помощью errorbar
-plt.errorbar(x_coord, y_coord, 
-             xerr=error_x_coord, 
-             yerr=error_y_coord,
-             fmt='none',
-             ecolor='red',
-             elinewidth=1,
-             capsize=3,
-             alpha=0.7,
-             label='Погрешности')
+async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Этот бот создан для облегчения физических задач.")
 
-# Выбор типа зависимости
-print("Выберите тип зависимости для аппроксимации:")
-print("1. Линейная: y = kx + b")
-print("2. Квадратичная: y = ax² + bx + c")
-print("3. Гиперболическая: y = k/x + b")
-print("4. Синусоидная: y = a*sin(bx + c) + d")
-print("5. Логарифмическая: y = k*ln(x) + b")
+async def derivative_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    r[update.effective_user.id] = 'waiting_for_the_function'
+    await update.message.reply_text("Введите математическую функцию для вычисления производной:")
 
-choice = int(input("Введите номер выбранной зависимости (1-5): "))
+async def approximation_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для запуска аппроксимации графиков"""
+    r[update.effective_user.id] = 'waiting_for_points'
+    context.user_data['points'] = []
+    await update.message.reply_text(
+        "📊 Режим аппроксимации графиков\n\n"
+        "Вводите точки в формате: x error_x y error_y\n"
+        "где:\n"
+        "• x - координата по оси X\n"
+        "• error_x - погрешность по оси X\n"
+        "• y - координата по оси Y\n"
+        "• error_y - погрешность по оси Y\n\n"
+        "Например: 1 0.1 2 0.1\n"
+        "Для завершения ввода отправьте /done"
+    )
 
-# Аппрокимирующая линия
-x_fit = np.linspace(min(x_coord), max(x_coord), 100)
+async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для завершения ввода точек и построения линейной аппроксимации"""
+    user_id = update.effective_user.id
+    points = context.user_data.get('points', [])
 
-if choice == 1:
-    # Линейная зависимость
-    k, b = np.polyfit(x_coord, y_coord, 1) # Аппроксимация методом наименьших квадратов
-    plt.plot(x_coord, k * np.array(x_coord) + b, 'bo-', linewidth=2, label=f'Аппроксимация: y = {k:.3f}x + {b:.3f}')
-    
-    # Вычисляем площадь под графиком
-    area = (k/2 * max(x_coord)**2 + b * max(x_coord)) - (k/2 * min(x_coord)**2 + b * min(x_coord))
-    
-    # Отображаем площадь на графике
-    plt.fill_between(x_fit, k * x_fit + b, alpha=0.3, color='blue', label=f'Площадь = {area:.3f}')
-    plt.title('График зависимости y(x)')
+    if len(points) < 2:
+        await update.message.reply_text("❌ Нужно минимум 2 точки для аппроксимации!")
+        return
 
-elif choice == 2:
-    # Квадратичная зависимость
-    a, b, c = np.polyfit(x_coord, y_coord, 2)
-    plt.plot(x_fit, a * x_fit**2 + b * x_fit + c, 'bo-', linewidth=2, label=f'Аппроксимация: y = {a:.3f}x² + {b:.3f}x + {c:.3f}')
-    plt.title('График зависимости y(x²)')
+    # Сохраняем точки в контекст
+    context.user_data['points_processed'] = points
 
-elif choice == 3:
-    # Гиперболическая зависимость
-    invalidi = [(x, y, error_x, error_y, i) for i, (x, y, error_x, error_y) in enumerate(points) if x == 0]
-    validi = [p for p in points if p[0] != 0]
-    
-    if invalidi:
-        print(f"Обнаружены точки с x=0, которые невозможно использовать для гиперболической аппроксимации:")
-        for x, y, error_x, error_y, index in invalidi:
-            print(f"Точка {index+1}: ({x}, {y})")
-        print(f"Аппроксимация будет выполнена по {len(validi)} точкам из {len(x_coord)}")
-        
-        # Визуально выделяем проблемные точки
-        plt.scatter([p[0] for p in invalidi], [p[1] for p in invalidi], color='red', s=100, marker='x', linewidth=3, zorder=5, label='Невозможные точки (x=0)')
-    
-    if len(validi) >= 2:
-        k, b = np.polyfit([1/xi for xi in [p[0] for p in validi]], [p[1] for p in validi], 1)
-        plt.plot(x_fit, k / x_fit + b, 'bo-', linewidth=2, label=f'Аппроксимация: y = {k:.3f}/x + {b:.3f}')
+    # Создаем клавиатуру только с линейной аппроксимацией
+    keyboard = [
+        [InlineKeyboardButton("Линейная: y = kx + b", callback_data='approx_linear')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Показываем введенные точки
+    points_text = "📌 Введенные точки:\n"
+    for i, (x, err_x, y, err_y) in enumerate(points, 1):
+        points_text += f"{i}. x={x} ± {err_x}, y={y} ± {err_y}\n"
+
+    # Отправляем сообщение с точками и клавиатурой
+    await update.message.reply_text(points_text + "\nВыберите тип аппроксимации:", reply_markup=reply_markup)
+
+    r[user_id] = 'waiting_for_approximation_choice'
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+
+    if query.data == 'about':
+        await query.edit_message_text(text="Я обучающий бот")
+    elif query.data == 'derivative':
+        await derivative_command(update, context)
+    elif query.data == 'approximation':
+        await approximation_command(update, context)
+    elif query.data == 'approx_linear':
+        await handle_linear_approximation(update, context)
+
+async def handle_linear_approximation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка линейной аппроксимации"""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    points = context.user_data.get('points_processed', [])
+
+    if not points:
+        await query.edit_message_text("❌ Ошибка: точки не найдены")
+        return
+
+    # Распаковываем точки
+    x_coords = [p[0] for p in points]
+    error_x_coords = [p[1] for p in points]
+    y_coords = [p[2] for p in points]
+    error_y_coords = [p[3] for p in points]
+
+    try:
+        # Создаем график
+        plt.figure(figsize=(12, 8))
+
+        # Добавляем точки с погрешностями
+        plt.errorbar(x_coords, y_coords,
+                     xerr=error_x_coords,
+                     yerr=error_y_coords,
+                     fmt='o',
+                     color='blue',
+                     ecolor='red',
+                     elinewidth=1.5,
+                     capsize=4,
+                     capthick=1.5,
+                     markersize=6,
+                     alpha=0.8,
+                     label='Экспериментальные точки с погрешностями')
+
+        # Линейная аппроксимация
+        x_fit = np.linspace(min(x_coords), max(x_coords), 100)
+        k, b = np.polyfit(x_coords, y_coords, 1)
+        y_fit = k * x_fit + b
+        plt.plot(x_fit, y_fit, 'g-', linewidth=2.5, label=f'Линейная аппроксимация: y = {k:.3f}x + {b:.3f}')
+
+        # Вычисляем площадь под графиком
+        area = (k/2 * max(x_coords)**2 + b * max(x_coords)) - (k/2 * min(x_coords)**2 + b * min(x_coords))
+        plt.fill_between(x_fit, y_fit, alpha=0.2, color='green', label=f'Площадь = {area:.3f}')
+
+        # Настройка графика
+        plt.grid(True, alpha=0.3, linestyle='--')
+        plt.xlabel('X', fontsize=12)
+        plt.ylabel('Y', fontsize=12)
+        plt.title('Линейная аппроксимация')
+        plt.legend(fontsize=10, loc='best')
+
+        # Сохраняем график
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmpfile:
+            plt.savefig(tmpfile.name, dpi=120, bbox_inches='tight', facecolor='white')
+            tmpfile_path = tmpfile.name
+
+        plt.close()
+
+        # Отправляем график
+        with open(tmpfile_path, 'rb') as photo:
+            await query.edit_message_text("✅ Линейная аппроксимация выполнена!")
+            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
+
+        # Удаляем временный файл
+        os.unlink(tmpfile_path)
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ Ошибка при построении графика: {str(e)}")
+        plt.close()
+
+    # Очищаем состояние
+    r.pop(user_id, None)
+
+def calculate_derivative(func_str: str) -> str:
+    """Вычисляет производную математической функции."""
+    try:
+        # Определяем символьную переменную
+        x = sp.symbols('x')
+
+        # Преобразуем строку в символьное выражение
+        # Добавляем поддержку распространенных математических функций
+        local_dict = {
+            'sin': sp.sin,
+            'cos': sp.cos,
+            'tan': sp.tan,
+            'log': sp.log,
+            'ln': sp.log,
+            'exp': sp.exp,
+            'sqrt': sp.sqrt,
+            'pi': sp.pi,
+            'e': sp.E
+        }
+
+        fu = sp.sympify(func_str, locals=local_dict)
+
+        # Вычисляем производную
+        derivative_fu = sp.diff(fu, x)
+
+        # Упрощаем результат
+        simplified = sp.simplify(derivative_fu)
+
+        # Форматируем вывод
+        return (f"📐 Исходная функция: {sp.pretty(fu, use_unicode=True)}\n\n"
+                f"📈 Производная: {sp.pretty(simplified, use_unicode=True)}")
+
+    except sp.SympifyError as e:
+        return f"❌ Ошибка в синтаксисе функции: {str(e)}"
+    except Exception as e:
+        return f"❌ Непредвиденная ошибка: {str(e)}"
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    message_text = update.message.text
+
+    # Обработка ввода функции для производной
+    if user_id in r and r[user_id] == 'waiting_for_the_function':
+        try:
+            res = calculate_derivative(message_text)
+            await update.message.reply_text(f"Результат:\n{res}")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        r.pop(user_id, None)
+        return
+
+    # Обработка ввода точек для аппроксимации
+    elif user_id in r and r[user_id] == 'waiting_for_points':
+        try:
+            x, error_x, y, error_y = map(float, message_text.split())
+            points = context.user_data.get('points', [])
+            points.append((x, error_x, y, error_y))
+            context.user_data['points'] = points
+            await update.message.reply_text(
+                f"✅ Точка добавлена:\n"
+                f"   x = ({x} ± {error_x})\n"
+                f"   y = ({y} ± {error_y})\n"
+                f"Всего точек: {len(points)}\n"
+                f"Отправьте /done когда закончите."
+            )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Ошибка! Введите 4 числа через пробел: x error_x y error_y\n"
+                "Например: 1 0.1 2 0.1"
+            )
+        return
+
+    # Обычные текстовые ответы
+    message_text_lower = message_text.lower()
+    if "привет" in message_text_lower:
+        await update.message.reply_text("👋")
+    elif "как дела" in message_text_lower:
+        await update.message.reply_text("😊")
     else:
-        print("Недостаточно точек для гиперболической аппроксимации после фильтрации")
-    plt.title('График зависимости y(1/x)')
+        await update.message.reply_text("👍")
 
-elif choice == 4:
-    # Синусоидная зависимость
-    def sin_func(x, a, b, c, d):
-        return a * np.sin(b * x + c) + d
+# Создание приложения
+app = ApplicationBuilder().token("8366408036:AAFbu6NKeD5_aAQNtcUQKbwz5EBzmXYF42I").build()
 
-    amplitude = (max(y_coord) - min(y_coord)) / 2 # Амплитуда
-    offset = np.mean(y_coord) # Смещение
-    frequency = 2 * np.pi / (max(x_coord) - min(x_coord)) if max(x_coord) > min(x_coord) else 1 # Частота
+# Добавление обработчиков
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("help", help_command))
+app.add_handler(CommandHandler("about", about))
+app.add_handler(CommandHandler("derivative", derivative_command))
+app.add_handler(CommandHandler("approximation", approximation_command))
+app.add_handler(CommandHandler("done", done_command))
 
-    a, b, c, d = curve_fit(sin_func, x_coord, y_coord, p0 = [amplitude, frequency, 0, offset], maxfev = 1000)[0]
+app.add_handler(CallbackQueryHandler(button_handler))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
-    plt.plot(x_fit, sin_func(x_fit, a, b, c, d), 'bo-', linewidth=2, label=f'Аппроксимация: y = {a:.3f}sin({b:.3f}x + {c:.3f}) + {d:.3f}')
-    plt.title('График зависимости y(sin(x))')
+# Асинхронный запуск бота
+async def run():
+    await app.initialize()
+    await app.start()
+    print("✅ Бот запущен. Напиши ему /start в Telegram.")
+    await app.updater.start_polling()
+    await asyncio.Event().wait()
 
-elif choice == 5:
-    # Логарифмическая зависимость
-    invalidi = [(x, y, error_x, error_y, i) for i, (x, y, error_x, error_y) in enumerate(points) if x <= 0]
-    validi = [p for p in points if p[0] > 0]
-    
-    if invalidi:
-        print(f"Обнаружены точки с x <= 0, которые невозможно использовать для логарифмической аппроксимации:")
-        for x, y, error_x, error_y, index in invalidi:
-            print(f"  Точка {index+1}: ({x}, {y})")
-        print(f"Аппроксимация будет выполнена по {len(validi)} точкам из {len(x_coord)}")
-        
-        # Визуально выделяем проблемные точки
-        plt.scatter([p[0] for p in invalidi], [p[1] for p in invalidi], color='red', s=100, marker='x', linewidth=3, zorder=5, label='Невозможные точки (x <= 0)')
-    
-    if len(validi) >= 2:
-        k, b = np.polyfit(np.log([p[0] for p in validi]), [p[1] for p in validi], 1)
-        # Создаем x_fit только для положительных x
-        x_fit_log = np.linspace(min([p[0] for p in validi]), max([p[0] for p in validi]), 100)
-        plt.plot(x_fit_log, k * np.log(x_fit_log) + b, 'bo-', linewidth=2, label=f'Аппроксимация: y = {k:.3f}ln(x) + {b:.3f}')
-    else:
-        print("Недостаточно точек для логарифмической аппроксимации после фильтрации")
-    plt.title('График зависимости y(ln(x))')
-
-else:
-    print("Выберите номер 1-5.")
-
-plt.grid(True, alpha=0.3)
-plt.xlabel('X')
-plt.ylabel('Y')
-plt.legend()
-plt.show()
+# Запуск бота
+asyncio.run(run())
