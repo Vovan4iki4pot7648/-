@@ -1,0 +1,335 @@
+import nest_asyncio
+import logging
+import sympy as sp
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
+import matplotlib.pyplot as plt
+import numpy as np
+import tempfile
+import os
+
+nest_asyncio.apply()
+logging.basicConfig(level=logging.INFO)
+
+user_states = {}
+
+# ==================== ОБРАБОТЧИКИ КОМАНД ====================
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("Список команд", callback_data='help')],
+        [InlineKeyboardButton("Вычислить производную", callback_data='derivative')],
+        [InlineKeyboardButton("Вычислить интеграл", callback_data='integral')],
+        [InlineKeyboardButton("Аппроксимация графиков", callback_data='approximation')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "Привет! Я бот-помощник в выполнении практических работ по физике.\n\n"
+        "Выберите действие из меню:",
+        reply_markup=reply_markup
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        "Доступные команды:\n\n"
+        "/start — перезапустить бота и открыть главное меню\n"
+        "/help — показать список всех команд\n"
+        "/about — информация о боте\n"
+        "/derivative — вычислить производную функции\n"
+        "/integral — вычислить неопределенный интеграл\n"
+        "/approximation — построить график по точкам с погрешностями\n"
+        "/done — завершить ввод точек для аппроксимации"
+    )
+    await update.message.reply_text(help_text)
+
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Этот бот создан для облегчения решения физических задач.\n\n"
+        "Возможности:\n"
+        "Вычисление производных\n"
+        "Вычисление интегралов\n"
+        "Построение графиков с аппроксимацией"
+    )
+
+async def derivative_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_states[update.effective_user.id] = 'waiting_for_derivative'
+    await update.message.reply_text("Введите математическую функцию для вычисления производной (переменная x):")
+
+async def integral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_states[update.effective_user.id] = 'waiting_for_integral'
+    await update.message.reply_text("Введите математическую функцию для вычисления неопределенного интеграла (переменная x):")
+
+async def approximation_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_states[update.effective_user.id] = 'waiting_for_points'
+    context.user_data['points'] = []
+    await update.message.reply_text(
+        "Режим аппроксимации графиков\n\n"
+        "Вводите точки в формате: x error_x y error_y\n\n"
+        "Где:\n"
+        "x — координата по оси X\n"
+        "error_x — погрешность по оси X\n"
+        "y — координата по оси Y\n"
+        "error_y — погрешность по оси Y\n\n"
+        "Для завершения ввода отправьте /done",
+    )
+
+async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    points = context.user_data.get('points', [])
+
+    if len(points) < 2:
+        await update.message.reply_text("Нужно минимум 2 точки для аппроксимации!")
+        return
+
+    points_text = "Введенные точки:\n"
+    for i, (x, err_x, y, err_y) in enumerate(points, 1):
+        points_text += f"{i}. x = {x} ± {err_x}, y = {y} ± {err_y}\n"
+
+    await update.message.reply_text(points_text + "\nВыполняется линейная аппроксимация...")
+
+    await perform_linear_approximation(update, context, points)
+
+# ==================== ОБРАБОТЧИК КНОПОК ====================
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+
+    if query.data == 'help':
+        help_text = (
+            "Доступные команды:\n\n"
+            "/start — перезапустить бота и открыть главное меню\n"
+            "/help — показать список всех команд\n"
+            "/about — информация о боте\n"
+            "/derivative — вычислить производную функции\n"
+            "/integral — вычислить неопределенный интеграл\n"
+            "/approximation — построить график по точкам с погрешностями\n"
+            "/done — завершить ввод точек для аппроксимации"
+        )
+        await query.edit_message_text(help_text)
+
+    elif query.data == 'derivative':
+        user_states[user_id] = 'waiting_for_derivative'
+        await query.edit_message_text("Введите математическую функцию для вычисления производной (переменная x):")
+
+    elif query.data == 'integral':
+        user_states[user_id] = 'waiting_for_integral'
+        await query.edit_message_text("Введите математическую функцию для вычисления неопределенного интеграла (переменная x):")
+
+    elif query.data == 'approximation':
+        context.user_data['points'] = []
+        user_states[user_id] = 'waiting_for_points'
+        await query.edit_message_text(
+            "Режим аппроксимации графиков\n\n"
+            "Вводите точки в формате: x error_x y error_y\n\n"
+            "Где:\n"
+            "x — координата по оси X\n"
+            "error_x — погрешность по оси X\n"
+            "y — координата по оси Y\n"
+            "error_y — погрешность по оси Y\n\n"
+            "Для завершения ввода отправьте /done",
+        )
+
+# ==================== АППРОКСИМАЦИЯ ====================
+
+async def perform_linear_approximation(update: Update, context: ContextTypes.DEFAULT_TYPE, points: list):
+    user_id = update.effective_user.id
+
+    x_coords = [p[0] for p in points]
+    error_x_coords = [p[1] for p in points]
+    y_coords = [p[2] for p in points]
+    error_y_coords = [p[3] for p in points]
+
+    try:
+        k_mean, b_mean = np.polyfit(x_coords, y_coords, 1)
+        
+        plt.figure(figsize=(14, 9))
+
+        plt.errorbar(
+            x_coords, y_coords,
+            xerr=error_x_coords,
+            yerr=error_y_coords,
+            fmt='o',
+            color='blue',
+            ecolor='red',
+            elinewidth=1.5,
+            capsize=4,
+            capthick=1.5,
+            markersize=8,
+            alpha=0.8,
+            label='Экспериментальные точки с погрешностями'
+        )
+
+        x_fit = np.linspace(min(x_coords), max(x_coords), 100)
+        y_fit = k_mean * x_fit + b_mean
+        plt.plot(x_fit, y_fit, 'g-', linewidth=2.5, 
+                label=f'Аппроксимация: y = {k_mean:.3f}x + {b_mean:.3f}')
+
+        area = (k_mean/2 * max(x_coords)**2 + b_mean * max(x_coords)) - \
+               (k_mean/2 * min(x_coords)**2 + b_mean * min(x_coords))
+
+        plt.grid(True, alpha=0.3, linestyle='--')
+        plt.xlabel('X', fontsize=12)
+        plt.ylabel('Y', fontsize=12)
+        plt.legend(fontsize=10, loc='best')
+
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmpfile:
+            plt.savefig(tmpfile.name, dpi=120, bbox_inches='tight', facecolor='white')
+            tmpfile_path = tmpfile.name
+
+        plt.close()
+
+        caption = (
+            f"Линейная аппроксимация выполнена!\n\n"
+            f"Результаты:\n"
+            f"Коэффициент наклона: k = {k_mean:.3f}\n"
+            f"Свободный член: b = {b_mean:.3f}\n"
+            f"Площадь под графиком: S = {area:.3f}\n\n"
+        )
+
+        with open(tmpfile_path, 'rb') as photo:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=photo,
+                caption=caption
+            )
+
+        os.unlink(tmpfile_path)
+
+    except Exception as e:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"Ошибка при построении графика: {str(e)}"
+        )
+        plt.close()
+
+    finally:
+        user_states.pop(user_id, None)
+
+# ==================== МАТЕМАТИЧЕСКИЕ ВЫЧИСЛЕНИЯ ====================
+
+def calculate_derivative(func_str: str) -> str:
+    try:
+        x = sp.symbols('x')
+
+        local_dict = {
+            'sin': sp.sin, 'cos': sp.cos, 'tan': sp.tan,
+            'log': sp.log, 'ln': sp.log, 'exp': sp.exp,
+            'sqrt': sp.sqrt, 'pi': sp.pi, 'e': sp.E
+        }
+
+        fu = sp.sympify(func_str, locals=local_dict)
+        derivative_fu = sp.diff(fu, x)
+        simplified = sp.simplify(derivative_fu)
+
+        return (
+            f"Исходная функция: {sp.pretty(fu, use_unicode=True)}\n\n"
+            f"Производная: {sp.pretty(simplified, use_unicode=True)}"
+        )
+
+    except sp.SympifyError as e:
+        return f"Ошибка в синтаксисе функции: {str(e)}"
+    except Exception as e:
+        return f"Непредвиденная ошибка: {str(e)}"
+
+def calculate_integral(func_str: str) -> str:
+    try:
+        x = sp.symbols('x')
+
+        local_dict = {
+            'sin': sp.sin, 'cos': sp.cos, 'tan': sp.tan,
+            'log': sp.log, 'ln': sp.log, 'exp': sp.exp,
+            'sqrt': sp.sqrt, 'pi': sp.pi, 'e': sp.E
+        }
+
+        fu = sp.sympify(func_str, locals=local_dict)
+        integral_fu = sp.integrate(fu, x)
+
+        return (
+            f"Исходная функция: f(x) = {sp.pretty(fu, use_unicode=True)}\n\n"
+            f"Интеграл: ∫ f(x)dx = \n\n{sp.pretty(integral_fu, use_unicode=True)} + C"
+        )
+
+    except sp.SympifyError as e:
+        return f"Ошибка в синтаксисе функции: {str(e)}"
+    except Exception as e:
+        return f"Непредвиденная ошибка: {str(e)}"
+
+# ==================== ОБРАБОТЧИК ТЕКСТОВЫХ СООБЩЕНИЙ ====================
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    message_text = update.message.text
+    state = user_states.get(user_id)
+
+    if state == 'waiting_for_derivative':
+        try:
+            result = calculate_derivative(message_text)
+            await update.message.reply_text(f"Результат:\n{result}")
+        except Exception as e:
+            await update.message.reply_text(f"Ошибка: {str(e)}")
+        finally:
+            user_states.pop(user_id, None)
+        return
+
+    elif state == 'waiting_for_integral':
+        try:
+            result = calculate_integral(message_text)
+            await update.message.reply_text(f"Результат:\n{result}")
+        except Exception as e:
+            await update.message.reply_text(f"Ошибка: {str(e)}")
+        finally:
+            user_states.pop(user_id, None)
+        return
+
+    elif state == 'waiting_for_points':
+        try:
+            parts = message_text.split()
+            if len(parts) != 4:
+                raise ValueError("Нужно 4 числа")
+
+            x, error_x, y, error_y = map(float, parts)
+            points = context.user_data.get('points', [])
+            points.append((x, error_x, y, error_y))
+            context.user_data['points'] = points
+
+            await update.message.reply_text(
+                f"Точка добавлена:\n"
+                f"   x = ({x} ± {error_x})\n"
+                f"   y = ({y} ± {error_y})\n"
+                f"Всего точек: {len(points)}\n"
+                f"Отправьте /done когда закончите."
+            )
+        except ValueError:
+            await update.message.reply_text(
+                "Ошибка! Введите 4 числа через пробел: x error_x y error_y\n"
+                "Например: 1 0.1 2 0.2"
+            )
+        return
+
+    message_lower = message_text.lower()
+    if "привет" in message_lower:
+        await update.message.reply_text("👋")
+    elif "как дела" in message_lower:
+        await update.message.reply_text("😊")
+    else:
+        await update.message.reply_text("🤔")
+
+# ==================== ЗАПУСК БОТА ====================
+
+app = ApplicationBuilder().token("8366408036:AAFbu6NKeD5_aAQNtcUQKbwz5EBzmXYF42I").build()
+
+app.add_handler(CommandHandler("start", start_command))
+app.add_handler(CommandHandler("help", help_command))
+app.add_handler(CommandHandler("about", about_command))
+app.add_handler(CommandHandler("derivative", derivative_command))
+app.add_handler(CommandHandler("integral", integral_command))
+app.add_handler(CommandHandler("approximation", approximation_command))
+app.add_handler(CommandHandler("done", done_command))
+
+app.add_handler(CallbackQueryHandler(button_handler))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+
+print("✅ Бот запущен. Напиши ему /start в Telegram.")
+app.run_polling()
