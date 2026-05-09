@@ -1,3 +1,4 @@
+# ==================== БИБЛИОТЕКИ ====================
 import nest_asyncio
 import logging
 import sympy as sp
@@ -20,7 +21,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Список команд", callback_data='help')],
         [InlineKeyboardButton("Вычислить производную", callback_data='derivative')],
         [InlineKeyboardButton("Вычислить интеграл", callback_data='integral')],
-        [InlineKeyboardButton("Аппроксимация графиков", callback_data='approximation')]
+        [InlineKeyboardButton("Построение графиков", callback_data='approximation')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
@@ -32,13 +33,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "Доступные команды:\n\n"
-        "/start — перезапустить бота и открыть главное меню\n"
-        "/help — показать список всех команд\n"
-        "/about — информация о боте\n"
-        "/derivative — вычислить производную функции\n"
-        "/integral — вычислить неопределенный интеграл\n"
-        "/approximation — построить график по точкам с погрешностями\n"
-        "/done — завершить ввод точек для аппроксимации"
+        "/start - перезапустить бота и открыть главное меню\n"
+        "/help - показать список всех команд\n"
+        "/about - информация о боте\n"
+        "/derivative - вычислить производную функции\n"
+        "/integral - вычислить неопределенный интеграл\n"
+        "/approximation - построить график по точкам с погрешностями\n"
+        "/done - завершить ввод точек для аппроксимации"
     )
     await update.message.reply_text(help_text)
 
@@ -48,7 +49,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Возможности:\n"
         "Вычисление производных\n"
         "Вычисление интегралов\n"
-        "Построение графиков с аппроксимацией"
+        "Построение графиков"
     )
 
 async def derivative_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -63,13 +64,13 @@ async def approximation_command(update: Update, context: ContextTypes.DEFAULT_TY
     user_states[update.effective_user.id] = 'waiting_for_points'
     context.user_data['points'] = []
     await update.message.reply_text(
-        "Режим аппроксимации графиков\n\n"
+        "Режим построения графиков\n\n"
         "Вводите точки в формате: x error_x y error_y\n\n"
         "Где:\n"
-        "x — координата по оси X\n"
-        "error_x — погрешность по оси X\n"
-        "y — координата по оси Y\n"
-        "error_y — погрешность по оси Y\n\n"
+        "x - координата по оси X\n"
+        "error_x - погрешность по оси X\n"
+        "y - координата по оси Y\n"
+        "error_y - погрешность по оси Y\n\n"
         "Для завершения ввода отправьте /done",
     )
 
@@ -78,7 +79,7 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     points = context.user_data.get('points', [])
 
     if len(points) < 2:
-        await update.message.reply_text("Нужно минимум 2 точки для аппроксимации!")
+        await update.message.reply_text("Нужно минимум 2 точки для построения!")
         return
 
     points_text = "Введенные точки:\n"
@@ -99,13 +100,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == 'help':
         help_text = (
             "Доступные команды:\n\n"
-            "/start — перезапустить бота и открыть главное меню\n"
-            "/help — показать список всех команд\n"
-            "/about — информация о боте\n"
-            "/derivative — вычислить производную функции\n"
-            "/integral — вычислить неопределенный интеграл\n"
-            "/approximation — построить график по точкам с погрешностями\n"
-            "/done — завершить ввод точек для аппроксимации"
+            "/start - перезапустить бота и открыть главное меню\n"
+            "/help - показать список всех команд\n"
+            "/about - информация о боте\n"
+            "/derivative - вычислить производную функции\n"
+            "/integral - вычислить неопределенный интеграл\n"
+            "/approximation - построить график по точкам с погрешностями\n"
+            "/done - завершить ввод точек для построения"
         )
         await query.edit_message_text(help_text)
 
@@ -124,10 +125,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Режим аппроксимации графиков\n\n"
             "Вводите точки в формате: x error_x y error_y\n\n"
             "Где:\n"
-            "x — координата по оси X\n"
-            "error_x — погрешность по оси X\n"
-            "y — координата по оси Y\n"
-            "error_y — погрешность по оси Y\n\n"
+            "x  координата по оси X\n"
+            "error_x - погрешность по оси X\n"
+            "y - координата по оси Y\n"
+            "error_y - погрешность по оси Y\n\n"
             "Для завершения ввода отправьте /done",
         )
 
@@ -136,14 +137,46 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def perform_linear_approximation(update: Update, context: ContextTypes.DEFAULT_TYPE, points: list):
     user_id = update.effective_user.id
 
-    x_coords = [p[0] for p in points]
-    error_x_coords = [p[1] for p in points]
-    y_coords = [p[2] for p in points]
-    error_y_coords = [p[3] for p in points]
+    sorted_points = sorted(points, key=lambda p: p[0])
+
+    x_coords = [p[0] for p in sorted_points]
+    error_x_coords = [p[1] for p in sorted_points]
+    y_coords = [p[2] for p in sorted_points]
+    error_y_coords = [p[3] for p in sorted_points]
 
     try:
         k_mean, b_mean = np.polyfit(x_coords, y_coords, 1)
-        
+
+        x1, dx1, y1, dy1 = sorted_points[0]
+        xN, dxN, yN, dyN = sorted_points[-1]
+
+        max_left = (x1+dx1, y1-dy1)
+        max_right = (xN-dxN, yN+dyN)
+        if max_right[0] != max_left[0]:
+            k_max = (max_right[1] - max_left[1]) / (max_right[0] - max_left[0])
+            b_max = max_left[1] - k_max * max_left[0]
+        else:
+            k_max = float('inf')
+            b_max = None
+
+        min_left = (x1-dx1, y1+dy1)
+        min_right = (xN+dxN, yN-dyN)
+        if min_right[0] != min_left[0]:
+            k_min = (min_right[1] - min_left[1]) / (min_right[0] - min_left[0])
+            b_min = min_left[1] - k_min * min_left[0]
+        else:
+            k_min = float('inf')
+            b_min = None
+
+        all_x_vals = x_coords + [x1-dx1, x1+dx1, xN-dxN, xN+dxN]
+        x_min_all = min(all_x_vals)
+        x_max_all = max(all_x_vals)
+
+        x_range = x_max_all - x_min_all
+        padding = 0.1 * x_range if x_range != 0 else 1.0
+        x_min_plot = x_min_all - padding
+        x_max_plot = x_max_all + padding
+
         plt.figure(figsize=(14, 9))
 
         plt.errorbar(
@@ -161,10 +194,28 @@ async def perform_linear_approximation(update: Update, context: ContextTypes.DEF
             label='Экспериментальные точки с погрешностями'
         )
 
-        x_fit = np.linspace(min(x_coords), max(x_coords), 100)
+        x_fit = np.linspace(x_min_plot, x_max_plot, 100)
         y_fit = k_mean * x_fit + b_mean
-        plt.plot(x_fit, y_fit, 'g-', linewidth=2.5, 
-                label=f'Аппроксимация: y = {k_mean:.3f}x + {b_mean:.3f}')
+        plt.plot(x_fit, y_fit, 'g-', linewidth=2.5,
+                 label=f'Аппроксимация: y = {k_mean:.3f}x + {b_mean:.3f}')
+
+        if k_max != float('inf'):
+            x_max_line = np.array([x_min_plot, x_max_plot])
+            y_max_line = k_max * x_max_line + b_max
+            plt.plot(x_max_line, y_max_line, 'r--', linewidth=2,
+                     label=f'Макс. наклон: y = {k_max:.3f}x + {b_max:.3f}')
+        else:
+            plt.axvline(x=max_left[0], color='r', linestyle='--', linewidth=2,
+                        label='Макс. наклон (вертик.)')
+
+        if k_min != float('inf'):
+            x_min_line = np.array([x_min_plot, x_max_plot])
+            y_min_line = k_min * x_min_line + b_min
+            plt.plot(x_min_line, y_min_line, 'b--', linewidth=2,
+                     label=f'Мин. наклон: y = {k_min:.3f}x + {b_min:.3f}')
+        else:
+            plt.axvline(x=min_left[0], color='b', linestyle='--', linewidth=2,
+                        label='Мин. наклон (вертик.)')
 
         area = (k_mean/2 * max(x_coords)**2 + b_mean * max(x_coords)) - \
                (k_mean/2 * min(x_coords)**2 + b_mean * min(x_coords))
@@ -180,12 +231,23 @@ async def perform_linear_approximation(update: Update, context: ContextTypes.DEF
 
         plt.close()
 
+        delta_k = None
+        if k_max != float('inf') and k_min != float('inf'):
+            delta_k = abs(k_max - k_min) / 2
+
         caption = (
-            f"Линейная аппроксимация выполнена!\n\n"
+            f"Линейная аппроксимация выполнена.\n\n"
+            f"{new_points_text}"
             f"Результаты:\n"
-            f"Коэффициент наклона: k = {k_mean:.3f}\n"
-            f"Свободный член: b = {b_mean:.3f}\n"
-            f"Площадь под графиком: S = {area:.3f}\n\n"
+            f"Основная прямая:\n"
+            f"  Коэффициент наклона: k = {k_mean:.3f}\n"
+            f"  Свободный член: b = {b_mean:.3f}\n"
+            f"Максимальный наклон:\n"
+            f"  k_max = {k_max:.3f}, b_max = {b_max:.3f}\n"
+            f"Минимальный наклон:\n"
+            f"  k_min = {k_min:.3f}, b_min = {b_min:.3f}\n"
+            + (f"Абсолютная погрешность наклона: Δk = {delta_k:.3f}\n" if delta_k else "") +
+            f"Площадь под основным графиком: S = {area:.3f}\n"
         )
 
         with open(tmpfile_path, 'rb') as photo:
@@ -212,22 +274,18 @@ async def perform_linear_approximation(update: Update, context: ContextTypes.DEF
 def calculate_derivative(func_str: str) -> str:
     try:
         x = sp.symbols('x')
-
         local_dict = {
             'sin': sp.sin, 'cos': sp.cos, 'tan': sp.tan,
-            'log': sp.log, 'ln': sp.log, 'exp': sp.exp,
+            'ln': sp.log, 'exp': sp.exp,
             'sqrt': sp.sqrt, 'pi': sp.pi, 'e': sp.E
         }
-
         fu = sp.sympify(func_str, locals=local_dict)
         derivative_fu = sp.diff(fu, x)
         simplified = sp.simplify(derivative_fu)
-
         return (
             f"Исходная функция: {sp.pretty(fu, use_unicode=True)}\n\n"
             f"Производная: {sp.pretty(simplified, use_unicode=True)}"
         )
-
     except sp.SympifyError as e:
         return f"Ошибка в синтаксисе функции: {str(e)}"
     except Exception as e:
@@ -236,21 +294,17 @@ def calculate_derivative(func_str: str) -> str:
 def calculate_integral(func_str: str) -> str:
     try:
         x = sp.symbols('x')
-
         local_dict = {
             'sin': sp.sin, 'cos': sp.cos, 'tan': sp.tan,
-            'log': sp.log, 'ln': sp.log, 'exp': sp.exp,
+            'ln': sp.log, 'exp': sp.exp,
             'sqrt': sp.sqrt, 'pi': sp.pi, 'e': sp.E
         }
-
         fu = sp.sympify(func_str, locals=local_dict)
         integral_fu = sp.integrate(fu, x)
-
         return (
-            f"Исходная функция: f(x) = {sp.pretty(fu, use_unicode=True)}\n\n"
-            f"Интеграл: ∫ f(x)dx = \n\n{sp.pretty(integral_fu, use_unicode=True)} + C"
+            f"Исходная функция: {sp.pretty(fu, use_unicode=True)}\n\n"
+            f"Интеграл: {sp.pretty(integral_fu, use_unicode=True)} + C"
         )
-
     except sp.SympifyError as e:
         return f"Ошибка в синтаксисе функции: {str(e)}"
     except Exception as e:
@@ -288,12 +342,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parts = message_text.split()
             if len(parts) != 4:
                 raise ValueError("Нужно 4 числа")
-
             x, error_x, y, error_y = map(float, parts)
             points = context.user_data.get('points', [])
             points.append((x, error_x, y, error_y))
             context.user_data['points'] = points
-
             await update.message.reply_text(
                 f"Точка добавлена:\n"
                 f"   x = ({x} ± {error_x})\n"
